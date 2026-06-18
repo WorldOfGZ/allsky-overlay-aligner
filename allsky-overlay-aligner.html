@@ -28,7 +28,8 @@
   .stage h1{font-size:15px;font-weight:600;margin:0;letter-spacing:.2px;}
   .stage h1 .dot{color:var(--amber);}
   .stage .sub{color:var(--faint);font-size:12px;margin-top:2px;}
-  .canvas-host{position:relative;flex:1;min-height:340px;}
+  .canvas-host{position:relative;flex:1;min-height:340px;overflow:hidden;}
+  #zoom-wrap{position:absolute;inset:0;transform-origin:0 0;}
   canvas{position:absolute;inset:0;width:100%;height:100%;display:block;cursor:grab;}
   canvas.drag{cursor:grabbing;}
   #vs-host{position:absolute;inset:0;pointer-events:none;overflow:visible;}
@@ -63,8 +64,9 @@
          cursor:pointer;transition:.12s;}
   button:hover{border-color:var(--sky);color:#fff;}
   button.primary{background:rgba(95,208,224,.12);border-color:var(--sky);color:var(--sky);}
-  .seg{display:flex;gap:6px;flex-wrap:wrap;}
-  .seg button{flex:1;min-width:70px;}
+  .seg{display:grid;grid-template-columns:1fr 1fr;gap:6px;}
+  .seg button{white-space:normal;line-height:1.35;padding:7px 8px;text-align:center;}
+  .seg button small{display:block;font-size:10px;opacity:0.65;margin-top:2px;font-family:monospace;}
   .seg button.on{background:rgba(95,208,224,.14);border-color:var(--sky);color:var(--sky);}
   .toggle{display:flex;gap:7px;flex-wrap:wrap;}
   .toggle button{flex:1 1 calc(50% - 4px);}
@@ -95,6 +97,36 @@
   .out-note{font-size:11.5px;color:var(--faint);margin-top:10px;line-height:1.45;}
   .out-note code{font-family:var(--mono);font-size:11px;background:#130f04;
                  border:1px solid var(--amber-dim);border-radius:4px;padding:0 4px;color:#c7a06a;}
+
+  /* ── calibration mode ─────────────────────────────────────── */
+  .cal-banner{position:absolute;top:0;left:0;right:0;z-index:20;
+              background:rgba(6,8,15,.93);border-bottom:1.5px solid var(--sky);padding:9px 14px;}
+  .cal-banner-row{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+  .cal-title{font-weight:600;color:var(--sky);font-size:13px;margin-bottom:2px;}
+  .cal-sub{font-size:11px;color:var(--muted);}
+  .cal-dots{display:flex;gap:7px;align-items:center;}
+  .cal-dot{width:10px;height:10px;border-radius:50%;background:var(--line2);transition:.25s;}
+  #cal-panel{background:#06080f;border:1.5px solid var(--sky);border-radius:10px;}
+  #cal-panel h2{color:var(--sky);}
+  #cal-search{width:100%;box-sizing:border-box;margin-bottom:8px;}
+  #cal-star-list{max-height:260px;overflow-y:auto;border:1px solid var(--line2);border-radius:8px;}
+  .cal-star-item{padding:7px 10px;display:flex;justify-content:space-between;align-items:center;
+                 cursor:pointer;border-bottom:1px solid var(--line);transition:.1s;}
+  .cal-star-item:last-child{border-bottom:none;}
+  .cal-star-item:hover{background:rgba(95,208,224,.1);color:#fff;}
+  .cal-star-name{font-family:var(--mono);font-size:12.5px;}
+  .cal-star-info{font-size:11px;color:var(--faint);}
+  #cal-result-panel{background:#060c06;border:1.5px solid var(--ok);border-radius:10px;}
+  #cal-result-panel h2{color:var(--ok);}
+  .cal-res-row{display:flex;align-items:center;gap:8px;padding:4px 0;border-bottom:1px solid #0d170d;}
+  .cal-res-row:last-child{border-bottom:none;}
+  .cal-res-key{font-family:var(--mono);font-size:11.5px;color:#7eca6a;flex:0 0 175px;}
+  .cal-res-val{font-family:var(--mono);font-size:12px;color:#d0f4c0;flex:1;}
+  #ncp-marker{position:absolute;display:none;pointer-events:none;width:22px;height:22px;
+    border:2.5px solid rgba(255,190,30,0.85);border-radius:50%;transform:translate(-50%,-50%);}
+  #ncp-marker::before,#ncp-marker::after{content:'';position:absolute;background:rgba(255,190,30,0.7);}
+  #ncp-marker::before{left:50%;top:-6px;width:1.5px;height:6px;transform:translateX(-50%);}
+  #ncp-marker::after{left:50%;bottom:-6px;width:1.5px;height:6px;transform:translateX(-50%);}
 </style>
 </head>
 <body>
@@ -106,8 +138,30 @@
       <div class="sub">Drag canvas to move &middot; scroll to resize &middot; az slider to rotate</div>
     </header>
     <div class="canvas-host" id="host">
-      <canvas id="cv"></canvas>
-      <div id="vs-host"></div>
+      <div id="zoom-wrap">
+        <canvas id="cv"></canvas>
+        <div id="vs-host"></div>
+        <div id="ncp-marker" title="North Celestial Pole in overlay (moves with az)"></div>
+        <!-- calibration overlay canvas — shown only during 3-star alignment -->
+        <canvas id="cal-cv" style="display:none;position:absolute;inset:0;width:100%;height:100%;cursor:crosshair"></canvas>
+      </div>
+      <!-- calibration banner — stays outside zoom-wrap so it doesn't scale with the view -->
+      <div id="cal-banner" style="display:none" class="cal-banner">
+        <div class="cal-banner-row">
+          <div>
+            <div class="cal-title" id="cal-title">3-Star Alignment</div>
+            <div class="cal-sub"   id="cal-sub">Click on a bright star in your photo</div>
+          </div>
+          <div style="display:flex;gap:10px;align-items:center">
+            <div class="cal-dots">
+              <div class="cal-dot" id="cal-d0"></div>
+              <div class="cal-dot" id="cal-d1"></div>
+              <div class="cal-dot" id="cal-d2"></div>
+            </div>
+            <button id="cal-cancel">Cancel</button>
+          </div>
+        </div>
+      </div>
       <div class="drop" id="drop">
         <strong>Drop your all-sky photo here</strong>
         <div class="hint">Use the <b>raw image file</b> from your camera (.jpg). Not a screenshot of the AllSky website &mdash; that would include UI chrome and distort the scale.</div>
@@ -135,29 +189,34 @@
     <div class="sec">
       <h2>2 &middot; Location &amp; photo time</h2>
       <div class="grid2">
-        <div class="field"><span>Latitude (&deg;N)</span><input id="lat" type="number" step="0.001" value="48.644"></div>
-        <div class="field"><span>Longitude (&deg;E)</span><input id="lon" type="number" step="0.001" value="5.512"></div>
+        <div class="field"><span>Latitude (&deg;N)</span><input id="lat" type="number" step="0.001" value="48.857"></div>
+        <div class="field"><span>Longitude (&deg;E)</span><input id="lon" type="number" step="0.001" value="2.352"></div>
         <div class="field"><span>Date</span><input id="date" type="date" value="2026-06-17"></div>
         <div class="field"><span>Local time</span><input id="time" type="time" value="00:06"></div>
         <div class="field"><span>UTC offset (h)</span><input id="tz" type="number" step="1" value="2"></div>
       </div>
       <div class="note">Read date/time from the top of your AllSky capture. France summer = UTC+2.</div>
+      <div class="note" id="utc-display" style="margin-top:5px;color:var(--sky);">Sky time: —</div>
     </div>
 
     <div class="sec">
       <h2>3 &middot; Lens projection</h2>
-      <div class="seg" id="proj">
-        <button data-p="polar"   class="on">Equidistant</button>
-        <button data-p="stereo"            >Stereographic</button>
-        <button data-p="lambert"           >Equal-area</button>
-        <button data-p="ortho"             >Orthographic</button>
+      <div id="lens-info" style="display:none;margin-bottom:10px;font-size:11.5px;background:rgba(95,208,224,0.07);border-left:3px solid var(--sky);padding:7px 10px;border-radius:4px;line-height:1.7">
+        <span style="color:var(--faint)">Lens (from config):</span> <span id="lens-val" style="color:var(--ink)"></span><br>
+        <span style="color:var(--faint)">Projection in config:</span> <b id="proj-from-cfg" style="color:var(--sky)">—</b> <span style="color:var(--faint)">(pre-selected below)</span>
       </div>
-      <div class="note">
-        Must match your physical lens type &mdash; wrong projection = stars drift at the edges even when the center aligns.<br>
-        <b>Equidistant:</b> most fisheye lenses (160&ndash;220&deg; FOV). Start here if unsure.<br>
-        <b>Stereographic:</b> some wide-angle lenses; star shapes appear rounder at edges.<br>
-        <b>Equal-area:</b> astrophotography fisheye lenses (Sigma, Samyang, Rokinon&hellip;).<br>
-        <b>Orthographic:</b> rare; scientific cameras only.
+      <div class="seg" id="proj">
+        <button data-p="fisheye">Equisolid<small>"fisheye" — AllSky default</small></button>
+        <button data-p="polar" class="on">Equidistant<small>"polar"</small></button>
+        <button data-p="ortho">Orthographic<small>"ortho"</small></button>
+        <button data-p="stereo">Stereographic<small>"stereo"</small></button>
+      </div>
+      <div class="note" style="margin-top:8px">
+        Must match your physical lens &mdash; wrong projection = stars drift at the edges even when the center aligns.<br><br>
+        <b>Equisolid (fisheye)</b> &mdash; <em>AllSky default.</em> True fisheye formula: r&nbsp;=&nbsp;2f&middot;sin(&theta;/2). Most all-sky fisheye lenses including RPi HQ 2.7&nbsp;mm. Start here.<br><br>
+        <b>Equidistant (polar)</b> &mdash; r&nbsp;=&nbsp;f&middot;&theta;. Some rectilinear-fisheye and wide-angle lenses. Stars are slightly spread outward vs. equisolid.<br><br>
+        <b>Orthographic (ortho)</b> &mdash; r&nbsp;=&nbsp;f&middot;sin(&theta;). Rare; horizon ring is heavily compressed.<br><br>
+        <b>Stereographic (stereo)</b> &mdash; Dome projectors, some CCTV fisheye lenses. Stars appear rounder at the edge.
       </div>
     </div>
 
@@ -167,6 +226,44 @@
         <input id="az" type="range" min="0" max="360" step="0.5" value="180">
         <input id="azn" type="number" min="0" max="360" step="0.5" value="180"
                style="width:70px;text-align:right;flex:0 0 auto">
+      </div>
+      <div class="note" id="az-note" style="margin-top:3px">az=180 → North at top, East on left. For a camera physically pointing North, start at az=180 then fine-tune.</div>
+
+      <div style="margin-top:10px;margin-bottom:4px;font-size:11.5px;color:var(--ink);font-weight:600">AllSky camera settings (Both Day &amp; Night)</div>
+      <div class="grid2">
+        <div class="field">
+          <span>Rotation</span>
+          <select id="allsky-rot">
+            <option value="0">None (0°)</option>
+            <option value="180">180°</option>
+          </select>
+        </div>
+        <div class="field">
+          <span>Flip</span>
+          <select id="allsky-flip">
+            <option value="none">None</option>
+            <option value="h">Horizontal</option>
+            <option value="v">Vertical</option>
+            <option value="both">Both</option>
+          </select>
+        </div>
+      </div>
+      <div class="note" id="orient-note" style="margin-top:5px"></div>
+      <div class="note" id="polaris-guide" style="margin-top:8px;border-left:3px solid rgba(255,190,30,0.45);background:rgba(255,190,30,0.05);display:none">
+        <span style="color:rgba(255,215,50,0.95);font-weight:600">★ Polaris anchor (α UMi):</span>
+        The <span style="color:rgba(255,215,50,0.9)">gold crosshair</span> on your photo marks where Polaris
+        must appear given your disk size/position and latitude.
+        The <span style="color:rgba(255,190,30,0.85)">gold ring</span> in the overlay is the same point (NCP) as VirtualSky sees it.
+        <br>Start with <b>az = 180</b>, AllSky Rotation = None, Flip = None.
+        Drag the disk until the gold crosshair lands on actual Polaris in your photo,
+        then fine-tune <b>az</b> until the gold ring meets the crosshair.
+        Polaris is time-independent &mdash; always at altitude ≈ latitude, due North.
+      </div>
+      <!-- hidden inputs kept for internal state — driven by the dropdowns above -->
+      <input type="hidden" id="flipH">
+      <input type="hidden" id="flipV">
+      <div style="margin-bottom:8px">
+        <button id="lock-pos" style="width:100%;padding:8px 12px;font-weight:700;background:rgba(255,80,80,0.1);border-color:rgba(255,100,100,0.5);color:rgba(255,130,130,1)">🔓 Lock position (prevent accidental drag / scroll)</button>
       </div>
       <div class="row"><label>Diameter</label>
         <input id="rad" type="range" min="10" max="160" step="0.5" value="100">
@@ -196,9 +293,23 @@
         <button id="detect">Auto-detect circle</button>
         <button id="reset">Reset alignment</button>
       </div>
+      <div style="margin-top:10px">
+        <button id="cal-start" class="primary" style="width:100%;padding:9px 12px">✦ 3-Star Alignment &mdash; auto-compute from identified stars</button>
+      </div>
+      <div style="margin-top:6px">
+        <button id="pred-stars" style="width:100%;padding:8px 12px;background:rgba(50,220,110,0.08);border-color:rgba(50,220,110,0.35)">🔭 Show predicted Big Dipper on photo (diagnostic)</button>
+      </div>
+      <div class="note" id="pred-guide" style="display:none;border-left:3px solid rgba(50,220,110,0.5);background:rgba(50,220,110,0.05)">
+        <span style="color:rgba(110,255,170,0.95);font-weight:600">Green circles = mathematically computed star positions</span> (bypasses VirtualSky entirely).<br>
+        If they land on actual stars in your photo &rarr; your time, lat/lon, disk and projection are correct.<br>
+        Then <b>az = 180</b> in the overlay should also align. If not, only VirtualSky is the problem.<br>
+        If they <em>don't</em> match &rarr; check date / time / UTC offset, or drag the disk to the right place first.
+      </div>
       <div class="note">
         <b>az=180</b> = North at top, East on the left (standard looking-up view).<br>
-        Drag canvas to move &middot; scroll to resize &middot; step buttons for pixel-perfect fine tuning.
+        Use <b>step buttons</b> for precise positioning &middot; <b>Diameter</b> slider to resize.<br>
+        Drag &amp; scroll are available but can be locked above to prevent accidents.<br>
+        <b>3-Star Alignment:</b> click 3 stars in your photo, identify each by name &mdash; az, center &amp; size are computed automatically.
       </div>
     </div>
 
@@ -217,6 +328,29 @@
         <button id="tLabels" class="on">Labels: on</button>
         <button id="tCard"  class="on">Cardinals: on</button>
         <button id="tDisk"  class="on">Outline: on</button>
+      </div>
+    </div>
+
+    <!-- 3-star alignment: star picker (shown during calibration) -->
+    <div class="sec" id="cal-panel" style="display:none">
+      <h2 id="cal-panel-title">Star 1 of 3 — which star did you click?</h2>
+      <div class="note" style="margin-top:0;margin-bottom:10px">
+        Only stars above 10&deg; altitude at your photo time are listed. Sorted brightest first. Scroll to zoom your photo before clicking for precision.
+      </div>
+      <input id="cal-search" type="text" placeholder="Filter by name&hellip;">
+      <div id="cal-star-list"></div>
+      <div style="display:flex;gap:8px;margin-top:10px">
+        <button id="cal-undo" style="flex:1">&larr; Redo last click</button>
+      </div>
+    </div>
+
+    <!-- 3-star alignment: result (shown after all 3 stars identified) -->
+    <div class="sec" id="cal-result-panel" style="display:none">
+      <h2>3-Star Alignment Result</h2>
+      <div id="cal-result-body"></div>
+      <div style="display:flex;gap:8px;margin-top:12px">
+        <button class="primary" id="cal-apply" style="flex:1">Apply to controls</button>
+        <button id="cal-redo" style="flex:1">Start over</button>
       </div>
     </div>
 
@@ -1012,8 +1146,10 @@ function VirtualSky(input){
 	@*/
 
 	// Identify the default base directory
+	// (guard for inline embedding: no external script tag exists)
 	this.setDir = function(){
-		var d = S('script[src*=virtualsky]').attr('src')[0].match(/^.*\//);
+		var src = S('script[src*=virtualsky]').attr('src');
+		var d = (src && src[0]) ? src[0].match(/^.*\//) : null;
 		this.dir = d && d[0] || "";
 		return;
 	};
@@ -4526,7 +4662,10 @@ S.virtualsky.plugins = [];
 })(S);
 
 
-VirtualSky.prototype.loadJSON = function() { return this; };
+// Block VirtualSky's AJAX — all needed data (lines) is pre-loaded inline.
+// VirtualSky calls S(document).ajax(...), so patching the stuQuery prototype
+// is the correct intercept point. stuQuery is exposed globally at line 843.
+stuQuery.prototype.ajax = function() {};
 
 const VS_LINES = { "lines": [["And",12.113,37.432,677,3092,3092,5447,9640,5447,5447,4436,4436,3881],["Ant",155,-34,51172,48926],["Aps",242.16,-75.3,72370,81065,81065,81852],["Aqr",340,-10,106278,109074,109074,110395,110395,110960,110960,111497,111497,112961,112961,114855,114855,115438,109074,110003,110003,109139,110003,111123,111123,112716,112716,113136,113136,114341,102618,106278],["Aql",295,3.4106,98036,97649,97649,97278,97649,95501,95501,97804,99473,97804,95501,93747,93747,93244,95501,93805],["Ara",260.62,-52,88714,85792,85792,83081,83081,82363,82363,85727,85727,85267,85267,85258,85258,88714],["Ari",39.538,20.792,13209,9884,9884,8903,8903,8832],["Aur",91.104,42.028,28380,28360,28360,24608,24608,23453,23453,23015,25428,23015,25428,28380],["Boo",220.66,31,71795,69673,69673,72105,72105,74666,74666,73555,73555,71075,71075,71053,71053,69673,69673,67927,67927,67459],["Cae",73,-38,21060,21770,21770,21861],["Cam",90,70,16228,18505,18505,22783,22783,17959,17959,16228,17959,25110],["Cnc",129.74,19.806,43103,42806,42806,40843,42806,42911,42911,40526,42911,44066],["CVn",196.74,40.102,61317,63125],["CMa",102.43,-22.14,33160,34045,34045,33347,33347,32349,32349,33977,33977,34444,34444,35037,35037,35904,33579,33856,33856,34444,33856,33165,33165,31592,31592,31416,31592,30324,31592,32349,33579,32759,30122,33579,33347,33160],["CMi",114.79,6.4269,37279,36188],["Cap",315,-21,100064,100345,100345,104139,104139,105515,105515,106985,106985,107556,105515,105881,105881,104139,100345,102485,104139,102978],["Car",130,-60,45238,50099,50099,52419,52419,52468,52468,54463,54463,53253,53253,51232,51232,50371,50371,45556,42568,41037,41037,30438,45080,45556,45080,42568,30438,31685,41037,39429],["Cas",19.788,62.184,8886,6686,6686,4427,4427,3179,3179,746],["Cen",196.07,-47.345,71683,68702,68702,66657,66657,68002,68002,68282,68282,67472,67472,67464,67464,65936,65936,65109,67464,68933,67472,71352,71352,73334,68002,61932,61932,60823,60823,59196,59196,56480,56480,56561],["Cep",340,71.008,109492,112724,112724,106032,106032,105199,105199,109492,112724,116727,116727,106032],["Cet",25.025,-7.1792,10324,11484,8102,3419,3419,1562,3419,5364,5364,6537,6537,8645,8645,11345,11345,12390,12390,12770,12770,11783,11783,8102,10826,12390,10826,12387,12387,12706,12706,14135,14135,13954,13954,12828,12828,11484,11484,12093,12093,12706],["Cha",160.38,-80,40702,51839,51839,60000],["Cir",225,-63,71908,75323,71908,74824],["Col",87.938,-35.094,30277,29807,29807,28199,28199,27628,27628,28328,27628,26634,26634,25859],["Com",191.82,23.306,64241,64394,64394,60742],["CrA",280,-41,91875,92989,92989,93174,93174,93825,93825,94114,94114,94160,94160,94005,94005,93542,93542,92953,91875,90887],["CrB",235,28.2,76127,75695,75695,76267,76267,76952,76952,77512,77512,78159,78159,78493],["Crv",186.63,-18.436,61174,60965,60965,59803,59803,59316,59316,59199,59316,61359,61359,60965],["Crt",170.94,-15.929,53740,54682,54682,55705,55705,55282,55282,53740,55282,55687,55687,56633,56633,58188,58188,57283,57283,55705],["Cru",186.75,-60.186,61084,60718,62434,59747],["Cyg",300.82,35.545,94779,95853,95853,97165,97165,100453,100453,102098,100453,102488,102488,104732,104732,107310,100453,98110,98110,95947],["Del",310.4,11.671,101421,101769,101769,101958,101958,102532,102532,102281,102281,101769],["Dor",80,-65,27100,27890,27890,26069,26069,27100,26069,21281,21281,19893],["Dra",250,60,87585,87833,87833,85670,85670,85829,85829,87585,87585,94376,94376,97433,97433,89937,89937,83895,83895,80331,80331,78527,78527,75458,75458,68756,68756,61281,61281,56211],["Equ",317.81,7.7581,104521,104858,104858,105570,105570,104987,104987,104521],["Eri",63,-28.756,7588,9007,9007,10602,10602,11407,11407,12413,12413,12486,12486,13847,13847,15510,15510,17797,17797,17874,17874,20042,20042,20535,20535,21393,21393,17651,17651,16611,16611,15474,15474,14146,14146,12843,12843,13701,13701,15197,15197,16537,16537,17378,17378,21444,21444,22109,22109,22701,22701,23875,23875,23972,23972,21594],["For",41.967,-31.634,13147,14879],["Gem",106.06,22.6,31681,34088,34088,35550,35550,35350,35350,32362,35550,36962,36962,37740,36962,37826,36962,36046,36046,34693,34693,36850,34693,33018,34693,32246,32246,30883,32246,30343,30343,29655,29655,28734],["Gru",336.85,-46.352,114131,110997,110997,109268,109268,112122,112122,114421,114421,114131,112122,113638,112122,112623,109268,109111,109111,108085],["Her",260.79,27.499,86414,87808,87808,85112,85112,84606,84606,84380,84380,81833,81833,81126,81126,79992,79992,77760,81833,81693,81693,80816,80816,80170,81693,83207,83207,85693,85693,84379,86974,87933,87933,88794,87933,86974,83207,84380],["Hor",49.138,-53.336,19747,12484,12484,14240],["Hya",154,-20,42799,42402,42402,42313,42313,43109,43109,43234,43234,42799,43234,43813,43813,45336,45336,46776,46776,46509,46509,46390,46390,48356,48356,49841,49841,51069,51069,52943,52943,56343,56343,57936,57936,64166,64166,64962],["Hyi",35.158,-69.956,2021,17678,17678,12394,12394,11001,11001,9236],["Ind",320,-55,105319,101772,101772,103227,103227,105319],["Lac",336.92,46.042,109937,111104,111104,111022,111022,110609,110609,110538,110538,111169,111169,111022],["Leo",160,13.139,57632,54879,54879,49669,49669,49583,49583,50583,50583,54872,54872,57632,50583,50335,50335,48455,48455,47908,54872,54879],["LMi",153.68,32.134,53229,51233,51233,49593,49593,46952,49593,53229],["Lep",83.487,-19.046,28910,28103,28103,27288,27288,25985,25985,24305,25985,27654,27654,27072,27072,25606,25606,23685,25985,25606,24305,24845,24305,24327,23685,24305,24327,24244,24845,24873],["Lib",227.99,-15.234,77853,76333,76333,74785,74785,72622,72622,73714,73714,76333],["Lup",232,-42,77634,78970,78970,78384,78384,77634,78384,76297,76297,75141,75141,75177,75141,73273,76297,76552,76552,74395,74395,71860,74395,71536,71860,70576,71860,73273],["Lyn",119.88,47.467,45860,45688,45688,44700,44700,44248,44248,41075,41075,36145,36145,33449,33449,30060],["Lyr",282.79,36.689,91262,91971,91971,92420,92420,93194,93194,92791,92791,91971],["Men",81.221,-77.504,25918,21949],["Mic",314.47,-36.275,105140,103738,103738,102831],["Mon",105.9,0.28194,29651,30867,30867,34769,34769,30419,30419,29151,34769,39863,39863,37447],["Mus",188.82,-70.161,62322,57363,57363,61199,61199,61585,61585,62322],["Nor",240,-51.351,79509,80000,80000,80582,80582,78639,78639,80000,78639,79509],["Oct",320,-85,107089,112405,112405,70638,70638,107089],["Oph",258,-4,86032,86742,84012,86742,86032,83000,83000,79882,79882,81377,81377,84012,84012,85755],["Ori",83.646,6,26727,26311,26311,25930,28691,29426,29426,29038,29038,27913,29426,28614,28614,27989,27989,26727,26727,27366,27366,24436,24436,25930,25930,25336,25336,26207,26207,27989,25336,22449,22449,22549,22549,22730,22730,23123,22449,22509,22509,22845,29038,28614],["Pav",294.18,-65.781,100751,105858,105858,102395,102395,99240,99240,100751,99240,98495,98495,91792,91792,93015,93015,99240,93015,92609,92609,90098,90098,88866,88866,92609,88866,86929],["Peg",340.46,19.466,1067,113963,113881,112158,112158,109352,113881,112748,112748,112440,112440,109176,109176,107354,113963,112447,112447,112029,112029,109427,109427,107315,677,113881,677,1067,113881,113963],["Per",55,45,17448,18246,18246,18614,18614,18532,18532,17358,17358,15863,15863,14328,14328,13268,15863,14576,14576,14354,14354,13254],["Phe",13.975,-48.581,5348,5165,5165,2072,2072,5348,5165,7083,7083,8837,8837,5165,5165,6867,6867,2072,2072,2081,2081,765,765,2072],["Pic",85.612,-53.474,32607,27530,27530,27321],["Psc",15,12,4889,5742,4889,6193,6193,5742,5742,7097,7097,8198,8198,9487,9487,8833,8833,7884,7884,7007,7007,4906,4906,3760,3760,1645,1645,118268,118268,116771,116771,116928,116928,115738,115738,114971,114971,115830,115830,116771],["PsA",334.27,-30.642,113368,111954,111954,108661,108661,107608,107608,109422,109422,111188,111188,113246],["Pup",118,-30,39757,38146,38146,35264,35264,31685,31685,32768,32768,36377,36377,39429,39429,39757],["Pyx",134.29,-27.352,42515,42828,42828,43409],["Ret",58.817,-59.998,19780,19921,19921,18597,18597,17440,17440,19780],["Sge",294.76,18.861,96837,97365,97365,96757,97365,98337,98337,98920],["Sgr",286.48,-28.477,89931,90496,89642,90185,90185,88635,88635,87072,88635,89931,89931,90185,90185,93506,93506,92041,92041,89931,92041,90496,90496,89341,93506,93864,93864,92855,92855,92041,92855,93085,93085,93683,93683,94820,94820,95168,93864,96406,96406,98688,98688,98412,98412,98032,98032,95347,98032,95294],["Sco",250,-35,85927,86670,86670,87073,87073,86228,86228,84143,84143,82671,82671,82514,82514,82396,82396,81266,81266,80763,80763,78401,80763,78265,80763,78820],["Scl",6.5667,-32.088,116231,4577,4577,115102,115102,116231],["Sct",280.1,-9.8886,92175,92202,92202,92814,92814,90595,90595,91117,91117,92175],["Ser",242,6.4,77516,77622,77622,77070,77070,76276,76276,77233,77233,78072,78072,77450,77450,77233,92946,89962,89962,86565,86565,86263,86263,84880],["Sex",154.07,-2.6144,51437,49641],["Tau",65,14.877,25428,21881,21881,20889,21421,26451,20205,20455,20205,18724,18724,15900,21421,20889,21421,20894,20894,20205,20889,20648,20648,20455,20455,17847],["Tel",289.88,-51.037,90568,90422],["Tri",30,32,10559,10064,10064,8796,8796,10559],["TrA",241.24,-65.388,82273,74946,74946,77952,77952,82273],["Tuc",0,-65,110130,114996,114996,1599,114996,2484],["UMa",160,50,67301,65378,65378,62956,62956,59774,59774,54061,54061,53910,53910,58001,58001,59774,58001,57399,57399,54539,54539,50372,54539,50801,53910,48402,48402,46853,46853,44471,46853,44127,48402,48319,48319,41704,41704,46733,46733,54061],["UMi",225,74,11767,85822,85822,82080,82080,77055,77055,79822,79822,75097,75097,72607,72607,77055],["Vel",143.66,-47.167,39953,42536,42536,42913,42913,45941,45941,48774,48774,52727,52727,51986,51986,50191,50191,46651,46651,44816,44816,39953],["Vir",201.1,-4.1583,57380,60030,60030,61941,61941,65474,65474,69427,69427,69701,69701,71957,65474,66249,66249,68520,68520,72220,66249,63090,63090,63608,63090,61941],["Vol",116.93,-69.801,37504,34481,34481,39794,39794,37504,39794,35228,39794,41312,41312,44382,44382,39794],["Vul",305,25,95771,98543]] };
 
@@ -4536,7 +4675,117 @@ const st = {
   az: 180, proj: 'polar',
   op: 0.50, mag: 4.0,
   showLines: true, showLabels: true, showCard: true, showDisk: true,
+  flipH: false, flipV: false,
+  showPredicted: false,
+  locked: false,
 };
+
+function applyFlip() {
+  const vsC = $('vs-container_inner');
+  if (!vsC) return;
+  const tx = st.flipH ? 'scaleX(-1)' : '';
+  const ty = st.flipV ? 'scaleY(-1)' : '';
+  vsC.style.transform = [tx, ty].filter(Boolean).join(' ');
+}
+
+// Draw gold Polaris crosshair on the photo canvas.
+// Position is time-independent: alt≈lat, az=0° (due North from zenith).
+// Only flipV affects it (South↔North swap). flipH leaves the N-S axis at x=disk_center_x.
+function drawPolarisMarker() {
+  const lat = +$('lat').value;
+  if (!st.img || isNaN(lat) || Math.abs(lat) < 1) return;
+  const frac = (90 - Math.abs(lat)) / 90;
+  const [ccx, ccy] = i2c(st.cx, st.cy);
+  const cR = st.r * fit.s;
+  const py = ccy + (st.flipV ? +frac : -frac) * cR;
+  const px = ccx;
+  const rs = 7 * dpr, rl = 14 * dpr;
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,190,30,0.92)';
+  ctx.fillStyle   = 'rgba(255,215,50,1)';
+  ctx.lineWidth   = Math.max(1, 1.5 * dpr);
+  ctx.beginPath(); ctx.arc(px, py, rs, 0, 2*Math.PI); ctx.stroke();
+  ctx.beginPath();
+  ctx.moveTo(px - rl, py); ctx.lineTo(px + rl, py);
+  ctx.moveTo(px, py - rl); ctx.lineTo(px, py + rl);
+  ctx.stroke();
+  ctx.font = `bold ${Math.round(10.5 * dpr)}px monospace`;
+  ctx.fillText('α UMi / Polaris', px + rs + 3*dpr, py - 3*dpr);
+  ctx.restore();
+}
+
+// Position the gold NCP ring inside the overlay to match VirtualSky's North Celestial Pole.
+// Accounts for current az and CSS flip transforms on vs-container_inner.
+function positionNCPMarker() {
+  const m = $('ncp-marker');
+  if (!m || !st.img) { if (m) m.style.display = 'none'; return; }
+  const lat = +$('lat').value;
+  if (isNaN(lat) || Math.abs(lat) < 1) { m.style.display = 'none'; return; }
+  const frac       = (90 - Math.abs(lat)) / 90;
+  const az_off_rad = ((st.az % 360) - 180) * Math.PI / 180;
+  const cR  = st.r * fit.s / dpr;
+  const ccx = fit.ox/dpr + st.cx*fit.s/dpr;
+  const ccy = fit.oy/dpr + st.cy*fit.s/dpr;
+  // NCP offset from overlay center before flips
+  let dx =  cR * frac * Math.sin(az_off_rad);
+  let dy = -cR * frac * Math.cos(az_off_rad);
+  // CSS scaleX/Y(-1) mirrors the offset direction
+  if (st.flipH) dx = -dx;
+  if (st.flipV) dy = -dy;
+  m.style.display = 'block';
+  m.style.left    = (ccx + dx) + 'px';
+  m.style.top     = (ccy + dy) + 'px';
+}
+
+// Big Dipper (UMa) + Polaris + Kochab for the "predict stars" diagnostic
+const PRED_UMA = [
+  ['Dubhe',  11.0621, 61.751],
+  ['Merak',  11.0307, 56.383],
+  ['Phecda', 11.8971, 53.683],
+  ['Megrez', 12.2568, 57.018],
+  ['Alioth', 12.9005, 55.960],
+  ['Mizar',  13.3987, 54.925],
+  ['Alkaid', 13.7923, 49.313],
+  ['Polaris',  2.5303, 89.264],
+  ['Kochab', 14.8451, 74.156],
+];
+
+// Draw green predicted-star circles on the photo canvas.
+// Uses spherical-trig alt/az (same math as calAltAz) and the equidistant projection.
+// Independent of VirtualSky — directly verifies whether time+disk are correct.
+// az_off=0 assumed for photo (camera North=top, standard orientation); flipH/V applied.
+function drawPredictedStars() {
+  if (!st.showPredicted || !st.img) return;
+  const lat = +$('lat').value;
+  if (isNaN(lat) || Math.abs(lat) < 1) return;
+  const lst = calLST();
+  const [ccx, ccy] = i2c(st.cx, st.cy);
+  const cR = st.r * fit.s;
+  ctx.save();
+  ctx.font = `bold ${Math.round(9.5 * dpr)}px monospace`;
+  ctx.textBaseline = 'middle';
+  PRED_UMA.forEach(([name, raH, decDeg]) => {
+    const {alt, az} = calAltAz(raH, decDeg, lst, lat);
+    if (alt < 2) return;
+    const rn  = calRn(alt, st.proj);
+    const azR = az * Math.PI / 180;
+    let dx = -Math.sin(azR) * rn;
+    let dy = -Math.cos(azR) * rn;
+    if (st.flipH) dx = -dx;
+    if (st.flipV) dy = -dy;
+    const cpx = ccx + dx * cR;
+    const cpy = ccy + dy * cR;
+    const rs = 7 * dpr;
+    ctx.strokeStyle = 'rgba(50,220,110,0.95)';
+    ctx.fillStyle   = 'rgba(80,255,140,1)';
+    ctx.lineWidth   = Math.max(1, 1.5 * dpr);
+    ctx.beginPath(); ctx.arc(cpx, cpy, rs, 0, 2 * Math.PI); ctx.stroke();
+    ctx.beginPath(); ctx.arc(cpx, cpy, 2 * dpr, 0, 2 * Math.PI); ctx.fill();
+    ctx.fillStyle = 'rgba(110,255,170,1)';
+    ctx.fillText(name, cpx + rs + 3 * dpr, cpy);
+  });
+  ctx.restore();
+}
 
 let sky = null;
 let pendingCfg = null;
@@ -4554,7 +4803,20 @@ function computeFit() {
 }
 const i2c = (x, y) => [fit.ox + x*fit.s, fit.oy + y*fit.s];
 
+function updateUTCDisplay() {
+  const el = $('utc-display');
+  if (!el) return;
+  try {
+    const c = buildClock();
+    const pad = n => String(n).padStart(2, '0');
+    el.textContent = 'Sky time (UTC): ' +
+      c.getUTCFullYear() + '-' + pad(c.getUTCMonth()+1) + '-' + pad(c.getUTCDate()) +
+      '  ' + pad(c.getUTCHours()) + ':' + pad(c.getUTCMinutes());
+  } catch(e) { el.textContent = 'Sky time: invalid date/time'; }
+}
+
 function draw() {
+  updateUTCDisplay();
   cv.width  = $('host').clientWidth  * dpr;
   cv.height = $('host').clientHeight * dpr;
   ctx.clearRect(0, 0, cv.width, cv.height);
@@ -4571,8 +4833,11 @@ function draw() {
     ctx.fillStyle = '#5fd0e0'; ctx.fill();
     ctx.restore();
   }
+  drawPolarisMarker();
+  drawPredictedStars();
   updateVS();
   updateOut();
+  if (cal.active) calDrawMarkers();
 }
 
 window.addEventListener('resize', draw);
@@ -4587,7 +4852,7 @@ function vsOptions(w) {
   return {
     id: 'vs-container', width: w, height: w,
     latitude: +$('lat').value, longitude: +$('lon').value,
-    clock: buildClock(), live: false, az: st.az, projection: st.proj,
+    clock: buildClock().toISOString(), live: false, az: st.az, projection: st.proj,
     transparent: true, gradient: false, background: 'rgba(0,0,0,0)',
     cardinalpoints: st.showCard, constellations: st.showLines, constellationwidth: 1.8,
     showstarlabels: st.showLabels, showgalaxy: false, showstars: true,
@@ -4606,6 +4871,7 @@ function positionVS() {
   const cR = st.r * fit.s / dpr, ccx = fit.ox/dpr + st.cx*fit.s/dpr, ccy = fit.oy/dpr + st.cy*fit.s/dpr;
   wrap.style.left = (ccx - cR) + 'px';
   wrap.style.top  = (ccy - cR) + 'px';
+  positionNCPMarker();
 }
 
 function initVS() {
@@ -4616,13 +4882,15 @@ function initVS() {
   const vsC = $('vs-container_inner');
   if (vsC) { vsC.style.pointerEvents = 'none'; vsC.style.opacity = st.op; }
   positionVS();
+  applyFlip();
 }
 
 function updateVS() {
   if (!st.img) return;
-  if (!sky) { initVS(); return; }
+  if (!sky) { initVS(); }
+  if (!sky) return;
   const vsW = Math.max(10, Math.round(2 * st.r * fit.s / dpr));
-  if (Math.abs(sky.wide - vsW) > vsW * 0.015) { initVS(); return; }
+  if (Math.abs(sky.wide - vsW) > vsW * 0.015) { initVS(); }
   sky.az_off = (st.az % 360) - 180;
   sky.magnitude = st.mag; sky.cardinalpoints = st.showCard;
   sky.constellation.lines = st.showLines; sky.showstarlabels = st.showLabels;
@@ -4633,6 +4901,11 @@ function updateVS() {
   const vsC = $('vs-container_inner');
   if (vsC) vsC.style.opacity = st.op;
   positionVS();
+  applyFlip();
+  positionNCPMarker();
+  // Show the Polaris guide note when an image is loaded
+  const pg = $('polaris-guide');
+  if (pg) pg.style.display = st.img ? '' : 'none';
 }
 
 function outVals() {
@@ -4658,9 +4931,13 @@ function updateOut() {
   $('oval-overlayOffsetTop').textContent  = v.overlayOffsetTop;
   $('offL-val').textContent = v.overlayOffsetLeft;
   $('offT-val').textContent = v.overlayOffsetTop;
-  $('flipmsg').textContent = 'az=180 → North at top, East on the left. ' +
-    (v.az >= 170 && v.az <= 190 ? 'Your camera appears North-facing.' :
-     'Camera rotated ' + Math.abs(v.az - 180) + '° from North.');
+  const rot  = +$('allsky-rot').value;
+  const flip = $('allsky-flip').value;
+  const hasTransform = (rot !== 0 || flip !== 'none');
+  $('flipmsg').textContent = hasTransform
+    ? 'Confirm your AllSky settings match above: Rotation=' + (rot===180?'180°':'None') +
+      ', Flip=' + flip + '. The az value is calibrated for your image as displayed.'
+    : 'Standard orientation (North=Top, East=Left). If the overlay still looks mirrored, check your AllSky Rotation/Flip settings above.';
 }
 
 function parseLatLon(s) {
@@ -4681,14 +4958,21 @@ function applyConfig(c) {
     const op = Math.round(+c.opacity * 100); st.op = +c.opacity;
     $('op').value = op; $('opv').textContent = op + '%'; msgs.push('opacity');
   }
+  if (c.lens !== undefined) {
+    $('lens-val').textContent = c.lens || '—';
+    $('lens-info').style.display = 'block';
+  }
   if (c.projection) {
     st.proj = c.projection;
     document.querySelectorAll('#proj button').forEach(b => b.classList.toggle('on', b.dataset.p === st.proj));
+    $('proj-from-cfg').textContent = '"' + c.projection + '"';
+    $('lens-info').style.display = 'block';
     msgs.push('projection');
   }
   if (c.az !== undefined) {
     st.az = ((+c.az % 360) + 360) % 360;
     $('az').value = st.az.toFixed(1); $('azn').value = st.az.toFixed(1); msgs.push('az');
+    updateAzNote(st.az);
   }
   if (st.img) {
     const refw = Math.max(1, +($('refw').value) || 900), sc = refw / st.iw;
@@ -4745,9 +5029,22 @@ function detectSkyCircle() {
   draw();
 }
 
-$('az').addEventListener('input',e=>{st.az=+e.target.value;$('azn').value=(+e.target.value).toFixed(1);draw();});
+$('az').addEventListener('input',e=>{st.az=+e.target.value;$('azn').value=(+e.target.value).toFixed(1);updateAzNote(st.az);draw();});
 $('azn').addEventListener('input',e=>{if(e.target.value===''||isNaN(+e.target.value))return;st.az=+e.target.value;$('az').value=((+e.target.value%360)+360)%360;draw();});
 $('azn').addEventListener('change',e=>{const v=((+e.target.value%360)+360)%360||0;$('azn').value=v.toFixed(1);$('az').value=v;});
+
+function updateAzNote(az) {
+  const el = $('az-note');
+  if (!el) return;
+  const v = ((+az % 360) + 360) % 360;
+  let msg = 'az=180 → North at top, East on left (standard camera). Rotate until the constellation pattern matches your photo.';
+  if (Math.abs(v - 180) < 5) {
+    msg = 'az≈180: North at top, East on left. Standard orientation — good starting point.';
+  } else if (Math.abs(v - 0) < 5 || Math.abs(v - 360) < 5) {
+    msg = 'az≈0/360: South at top, West on left. Try az=180 if your camera has North at top.';
+  }
+  el.textContent = msg;
+}
 $('rad').addEventListener('input',e=>{st.r=(+e.target.value/100)*(st.iw/2);$('radv').textContent=(+e.target.value).toFixed(0)+'%';draw();});
 $('op').addEventListener('input',e=>{st.op=+e.target.value/100;$('opv').textContent=e.target.value+'%';draw();});
 $('mag').addEventListener('input',e=>{st.mag=+e.target.value;$('magv').textContent=(+e.target.value).toFixed(1);draw();});
@@ -4758,6 +5055,22 @@ document.querySelectorAll('#proj button').forEach(b=>b.addEventListener('click',
 }));
 
 $('center').addEventListener('click',()=>{if(!st.img)return;st.cx=st.iw/2;st.cy=st.ih/2;draw();});
+$('lock-pos').addEventListener('click',function(){
+  st.locked=!st.locked;
+  if(st.locked){
+    this.textContent='🔒 Position LOCKED — drag and scroll disabled';
+    this.style.background='rgba(50,220,110,0.18)';
+    this.style.borderColor='rgba(50,220,110,0.6)';
+    this.style.color='rgba(110,255,170,1)';
+    cv.style.cursor='default';
+  } else {
+    this.textContent='🔓 Lock position (prevent accidental drag / scroll)';
+    this.style.background='rgba(255,80,80,0.1)';
+    this.style.borderColor='rgba(255,100,100,0.5)';
+    this.style.color='rgba(255,130,130,1)';
+    cv.style.cursor='';
+  }
+});
 $('detect').addEventListener('click',detectSkyCircle);
 $('reset').addEventListener('click',()=>{
   if(!st.img)return;
@@ -4791,13 +5104,55 @@ tgl('tLabels','showLabels','Labels: on','Labels: off');
 tgl('tCard','showCard','Cardinals: on','Cardinals: off');
 tgl('tDisk','showDisk','Outline: on','Outline: off');
 
+// Compute flipH/flipV from AllSky Rotation + Flip dropdowns.
+// Physical camera: North=Top, East=LEFT (standard sky-looking-up).
+// AllSky Rotation then Flip transforms the saved image.
+// We apply the same transform to VirtualSky so alignment is possible.
+function updateFlipFromAllSkySettings() {
+  const rot  = +$('allsky-rot').value;          // 0 or 180
+  const flip = $('allsky-flip').value;          // none, h, v, both
+
+  // Start from North=Top, East=LEFT
+  let fh = (flip === 'h' || flip === 'both');   // flip L↔R?
+  let fv = (flip === 'v' || flip === 'both');   // flip T↔B?
+
+  // Rotation 180° = flipH XOR flipV toggled simultaneously
+  if (rot === 180) { fh = !fh; fv = !fv; }
+
+  st.flipH = fh;
+  st.flipV = fv;
+  applyFlip();
+  updateOrientNote();
+  updateOut();
+  draw();
+}
+
+const ORIENT_DESCS = {
+  'N-L': 'North=Top, East=Left  — standard sky-looking-up view. No correction needed.',
+  'N-R': 'North=Top, East=Right — horizontally mirrored (like a map). Overlay flipped accordingly.',
+  'S-L': 'South=Top, East=Left  — vertically mirrored. Overlay flipped accordingly.',
+  'S-R': 'South=Top, East=Right — rotated 180°. Overlay flipped accordingly.',
+};
+
+function updateOrientNote() {
+  const el = $('orient-note');
+  if (!el) return;
+  const top  = st.flipV ? 'S' : 'N';
+  const east = st.flipH ? 'R' : 'L';
+  const key  = top + '-' + east;
+  el.textContent = '→ Image orientation: ' + ORIENT_DESCS[key];
+}
+
+$('allsky-rot').addEventListener('change', updateFlipFromAllSkySettings);
+$('allsky-flip').addEventListener('change', updateFlipFromAllSkySettings);
+
 $('refw').addEventListener('input',()=>{if(st.img)updateOut();});
 
 document.querySelectorAll('.out-copy').forEach(btn=>{
   btn.addEventListener('click',function(){
     const key=this.dataset.key,valEl=$('oval-'+key);
     if(!valEl||valEl.textContent==='—')return;
-    const text='"'+key+'": '+valEl.textContent;
+    const text=valEl.textContent;
     navigator.clipboard?.writeText(text).then(()=>{
       const orig=this.textContent;this.textContent='✓';this.classList.add('copied');
       setTimeout(()=>{this.textContent=orig;this.classList.remove('copied');},1200);
@@ -4806,6 +5161,9 @@ document.querySelectorAll('.out-copy').forEach(btn=>{
 });
 
 ['lat','lon','date','time','tz'].forEach(id=>$(id).addEventListener('input',draw));
+updateUTCDisplay();
+updateAzNote(st.az);
+updateFlipFromAllSkySettings();
 
 function loadFile(f){
   if(!f||!f.type.startsWith('image/'))return;
@@ -4835,12 +5193,351 @@ const hostEl=$('host');
 hostEl.addEventListener('dragover',e=>e.preventDefault());
 hostEl.addEventListener('drop',e=>{e.preventDefault();if(e.dataTransfer.files[0])loadFile(e.dataTransfer.files[0]);});
 
+// ═══════════════════════════════════════════════════════════════
+// 3-STAR ALIGNMENT
+// ═══════════════════════════════════════════════════════════════
+
+// Named bright stars: [name, RA_hours, Dec_degrees, magnitude]  J2000.0
+const CAL_STARS=[
+  ['Sirius',        6.7525,-16.716,-1.46],['Canopus',       6.3992,-52.696,-0.74],
+  ['Arcturus',     14.2610, 19.182,-0.05],['Vega',          18.6156, 38.784, 0.03],
+  ['Capella',       5.2782, 45.998, 0.08],['Rigel',          5.2422, -8.202, 0.12],
+  ['Procyon',       7.6553,  5.225, 0.34],['Achernar',       1.6286,-57.237, 0.46],
+  ['Betelgeuse',    5.9192,  7.407, 0.50],['Hadar',         14.0637,-60.373, 0.61],
+  ['Altair',       19.8464,  8.868, 0.77],['Acrux',         12.4430,-63.099, 0.77],
+  ['Aldebaran',     4.5987, 16.509, 0.85],['Spica',         13.4199,-11.161, 1.04],
+  ['Antares',      16.4901,-26.432, 1.06],['Pollux',         7.7553, 28.026, 1.15],
+  ['Fomalhaut',    22.9608,-29.622, 1.16],['Deneb',         20.6905, 45.280, 1.25],
+  ['Mimosa',       12.7954,-59.689, 1.25],['Regulus',       10.1395, 11.967, 1.36],
+  ['Adhara',        6.9771,-28.972, 1.50],['Castor',         7.5766, 31.888, 1.58],
+  ['Shaula',       17.5603,-37.104, 1.62],['Gacrux',        12.5194,-57.113, 1.64],
+  ['Bellatrix',     5.4188,  6.350, 1.64],['Elnath',         5.4382, 28.608, 1.65],
+  ['Alnilam',       5.6036, -1.202, 1.70],['Alioth',        12.9005, 55.960, 1.76],
+  ['Alnair',       22.1373,-46.961, 1.73],['Alnitak',        5.6797, -1.943, 1.77],
+  ['Mirfak',        3.4054, 49.861, 1.79],['Dubhe',         11.0621, 61.751, 1.79],
+  ['Wezen',         7.1396,-26.393, 1.84],['Kaus Australis',18.4028,-34.385, 1.85],
+  ['Alkaid',       13.7923, 49.313, 1.86],['Sargas',        17.6218,-42.998, 1.87],
+  ['Atria',        16.8111,-69.028, 1.91],['Peacock',       20.4272,-56.735, 1.94],
+  ['Mirzam',        6.3783,-17.956, 1.98],['Alphard',        9.4597, -8.659, 1.98],
+  ['Hamal',         2.1196, 23.463, 2.00],['Algieba',       10.3328, 19.842, 2.01],
+  ['Polaris',       2.5303, 89.264, 2.02],['Diphda',         0.7265,-17.987, 2.04],
+  ['Saiph',         5.7957, -9.670, 2.06],['Menkent',       14.1114,-36.370, 2.06],
+  ['Kochab',       14.8451, 74.156, 2.07],['Alpheratz',      0.1398, 29.090, 2.07],
+  ['Mirach',        1.1622, 35.621, 2.07],['Rasalhague',    17.5822, 12.560, 2.08],
+  ['Denebola',     11.8177, 14.572, 2.14],['Naos',           8.0594,-40.003, 2.25],
+  ['Almach',        2.0650, 42.330, 2.26],['Caph',           0.1530, 59.150, 2.27],
+  ['Mizar',        13.3987, 54.925, 2.27],['Mintaka',        5.5332, -0.299, 2.23],
+  ['Eltanin',      17.9434, 51.489, 2.23],['Sadr',          20.3705, 40.257, 2.23],
+  ['Schedar',       0.6751, 56.537, 2.23],['Alphecca',      15.5781, 26.715, 2.23],
+  ['Sabik',        17.1727,-15.725, 2.43],['Merak',         11.0307, 56.382, 2.37],
+  ['Ankaa',         0.4388,-42.306, 2.39],['Scheat',        23.0629, 28.083, 2.42],
+  ['Alderamin',    21.3097, 62.586, 2.45],['Gienah',        20.7704, 33.970, 2.46],
+  ['Markab',       23.0794, 15.205, 2.49],['Phecda',        11.8972, 53.695, 2.44],
+  ['Zosma',        11.2351, 20.524, 2.56],['Cor Caroli',    12.9337, 38.319, 2.84],
+  ['Algenib',       0.2207, 15.184, 2.84],['Errai',         23.6557, 77.632, 3.21],
+];
+
+const CAL_D2R = Math.PI/180;
+
+// Local Sidereal Time in degrees, from UI inputs
+function calLST() {
+  const [Y,Mo,Da]=$('date').value.split('-').map(Number);
+  const [h,mi]=$('time').value.split(':').map(Number);
+  const utcMs=Date.UTC(Y,Mo-1,Da,h,mi,0)-(+$('tz').value)*3600000;
+  const d=utcMs/86400000+2440587.5-2451545.0;
+  const gmst=((280.46061837+360.98564736629*d)%360+360)%360;
+  return ((gmst+(+$('lon').value))%360+360)%360;
+}
+
+// Altitude & azimuth (degrees) of a star
+function calAltAz(raH,decDeg,lstDeg,latDeg){
+  const ha=(lstDeg/15-raH)*15*CAL_D2R;
+  const dec=decDeg*CAL_D2R, lat=latDeg*CAL_D2R;
+  const sinAlt=Math.sin(dec)*Math.sin(lat)+Math.cos(dec)*Math.cos(lat)*Math.cos(ha);
+  const alt=Math.asin(Math.max(-1,Math.min(1,sinAlt)));
+  const cosAz=(Math.sin(dec)-Math.sin(lat)*Math.sin(alt))/(Math.cos(lat)*Math.cos(alt)+1e-12);
+  let az=Math.acos(Math.max(-1,Math.min(1,cosAz)))/CAL_D2R;
+  if(Math.sin(ha)>0) az=360-az;
+  return {alt:alt/CAL_D2R, az};
+}
+
+// Normalised radial distance in the VirtualSky disk (0=zenith, 1=horizon)
+// Matches VirtualSky's azel2xy formulas exactly.
+function calRn(altDeg,proj){
+  const el=altDeg*CAL_D2R;
+  if(proj==='ortho')   return Math.cos(el);
+  if(proj==='fisheye') return Math.sqrt(2)*Math.sin((Math.PI/2-el)/2);
+  return (90-altDeg)/90;  // polar/equidistant
+}
+
+// Solve for az, disk center (cx,cy) and radius (r) from 3 star correspondences.
+// Returns null if no valid solution found.
+function solveCal(picks){
+  const N=picks.length;
+  const rns=picks.map(p=>calRn(p.star.alt,st.proj));
+  const azRad=picks.map(p=>p.star.az*CAL_D2R);
+  const pxs=picks.map(p=>p.px), pys=picks.map(p=>p.py);
+  let bestRes=Infinity, best=null;
+  // 1-D search over az_off [-180, 180) in 0.25° steps
+  // az_off relation: AllSky az = (az_off + 180) % 360
+  for(let a=-180;a<180;a+=0.25){
+    const aRad=a*CAL_D2R;
+    // VirtualSky disk coord: dx=-sin(star_az-az_off)*rn, dy=-cos(...)*rn
+    const dxs=rns.map((rn,i)=>-Math.sin(azRad[i]-aRad)*rn);
+    const dys=rns.map((rn,i)=>-Math.cos(azRad[i]-aRad)*rn);
+    // Normal equations for px_i = cx + dx_i*r, py_i = cy + dy_i*r  (6 eqs, 3 unknowns)
+    let Sdx=0,Sdy=0,Sd2=0,Spx=0,Spy=0,Sddp=0;
+    for(let i=0;i<N;i++){
+      Sdx+=dxs[i];Sdy+=dys[i];Sd2+=dxs[i]*dxs[i]+dys[i]*dys[i];
+      Spx+=pxs[i];Spy+=pys[i];Sddp+=dxs[i]*pxs[i]+dys[i]*pys[i];
+    }
+    const denom=Sd2-(Sdx*Sdx+Sdy*Sdy)/N;
+    if(Math.abs(denom)<1e-10) continue;
+    const r=(Sddp-(Sdx*Spx+Sdy*Spy)/N)/denom;
+    if(r<20||r>Math.max(st.iw,st.ih)*1.5) continue;
+    const cx=(Spx-Sdx*r)/N, cy=(Spy-Sdy*r)/N;
+    if(cx<-st.iw*0.5||cx>st.iw*1.5||cy<-st.ih*0.5||cy>st.ih*1.5) continue;
+    let res=0;
+    for(let i=0;i<N;i++){const ex=pxs[i]-(cx+dxs[i]*r),ey=pys[i]-(cy+dys[i]*r);res+=ex*ex+ey*ey;}
+    if(res<bestRes){bestRes=res;best={az:((a+180)%360+360)%360,cx,cy,r,rmse:Math.sqrt(res/N)};}
+  }
+  return best;
+}
+
+// ── Calibration state ──────────────────────────────────────────
+const cal={active:false,idx:0,picks:[],_result:null};
+const calCv=$('cal-cv');
+let calZoom=1, calTx=0, calTy=0;
+function applyCalZoom(){
+  $('zoom-wrap').style.transform = calZoom>1
+    ? `translate(${calTx}px,${calTy}px) scale(${calZoom})`
+    : '';
+  calDrawMarkers();
+}
+
+function calDrawStarLabels(c){
+  if(!st.img) return;
+  const lst=calLST();
+  const lat=+$('lat').value;
+  const az_off=(st.az%360)-180;
+  const cx=fit.ox+st.cx*fit.s, cy=fit.oy+st.cy*fit.s, r=st.r*fit.s;
+  c.save();
+  c.font=`${10*dpr}px sans-serif`;
+  c.textAlign='left'; c.textBaseline='middle';
+  CAL_STARS.forEach(([name,raH,decDeg])=>{
+    const {alt,az}=calAltAz(raH,decDeg,lst,lat);
+    if(alt<5) return;
+    const rn=calRn(alt,st.proj);
+    if(rn>=0.97) return;
+    const az_adj=(az-az_off)*CAL_D2R;
+    const sx=cx-rn*r*Math.sin(az_adj);
+    const sy=cy-rn*r*Math.cos(az_adj);
+    c.fillStyle='rgba(255,210,80,0.9)';
+    c.beginPath(); c.arc(sx,sy,2.5*dpr,0,Math.PI*2); c.fill();
+    c.fillStyle='rgba(255,210,80,0.85)';
+    c.fillText(name,sx+5*dpr,sy-3*dpr);
+  });
+  c.restore();
+}
+
+function calDrawMarkers(){
+  const host=$('host');
+  const w=host.clientWidth*dpr, h=host.clientHeight*dpr;
+  if(calCv.width!==w) calCv.width=w;
+  if(calCv.height!==h) calCv.height=h;
+  const c=calCv.getContext('2d');
+  c.clearRect(0,0,w,h);
+  if(!cal.active||!st.img) return;
+  computeFit();
+  calDrawStarLabels(c);
+  for(let i=0;i<cal.picks.length;i++){
+    const p=cal.picks[i];
+    const ccx=fit.ox+p.px*fit.s, ccy=fit.oy+p.py*fit.s;
+    c.save();
+    c.beginPath();c.arc(ccx,ccy,16*dpr,0,7);
+    c.strokeStyle='#5fd0e0';c.lineWidth=2*dpr;c.stroke();
+    c.fillStyle='rgba(6,8,15,.82)';c.fill();
+    c.fillStyle='#5fd0e0';c.font=`bold ${13*dpr}px sans-serif`;
+    c.textAlign='center';c.textBaseline='middle';
+    c.fillText(String(i+1),ccx,ccy);
+    if(p.star){
+      c.fillStyle='rgba(174,238,238,.9)';c.font=`${10*dpr}px sans-serif`;
+      c.fillText(p.star.name,ccx,ccy+22*dpr);
+    }
+    c.restore();
+  }
+}
+
+function calUpdateBanner(){
+  $('cal-title').textContent=`Step ${cal.idx+1} of 3 — Click a bright star in your photo`;
+  $('cal-sub').textContent='Choose 3 stars spread around the image (not in a line). Scroll to zoom for precision.';
+  ['cal-d0','cal-d1','cal-d2'].forEach((id,i)=>{
+    $(id).style.background=i<cal.idx?'var(--ok)':i===cal.idx?'var(--sky)':'var(--line2)';
+  });
+}
+
+function calClear(){
+  cal.active=false;cal.idx=0;cal.picks=[];cal._result=null;
+  calZoom=1;calTx=0;calTy=0;$('zoom-wrap').style.transform='';
+  $('cal-banner').style.display='none';
+  calCv.style.display='none';
+  $('cal-panel').style.display='none';
+  $('cal-result-panel').style.display='none';
+  calDrawMarkers();
+}
+
+function calStart(){
+  if(!st.img){alert('Load an image first.');return;}
+  if(st.proj==='stereo'){
+    alert('3-Star Alignment requires a circular-disk projection.\nSwitch to Equisolid, Equidistant or Orthographic first.');
+    return;
+  }
+  cal.active=true;cal.idx=0;cal.picks=[];cal._result=null;
+  calCv.style.display='block';
+  $('cal-banner').style.display='block';
+  $('cal-panel').style.display='none';
+  $('cal-result-panel').style.display='none';
+  calUpdateBanner();
+  calDrawMarkers();
+}
+
+function calShowPicker(){
+  const lat=+$('lat').value, lst=calLST();
+  const visible=CAL_STARS.map(s=>{
+    const aa=calAltAz(s[1],s[2],lst,lat);
+    return {name:s[0],mag:s[3],alt:aa.alt,az:aa.az};
+  }).filter(s=>s.alt>10).sort((a,b)=>a.mag-b.mag);
+  const list=$('cal-star-list');
+  list.innerHTML='';
+  visible.forEach(s=>{
+    const el=document.createElement('div');
+    el.className='cal-star-item';
+    el.innerHTML=`<span class="cal-star-name">${s.name}</span><span class="cal-star-info">mag ${s.mag.toFixed(1)} alt ${Math.round(s.alt)}° az ${Math.round(s.az)}°</span>`;
+    el.addEventListener('click',()=>calSelectStar(s));
+    list.appendChild(el);
+  });
+  $('cal-panel-title').textContent=`Star ${cal.idx+1} of 3 — which star did you click?`;
+  $('cal-search').value='';
+  $('cal-panel').style.display='block';
+  $('cal-panel').scrollIntoView({behavior:'smooth',block:'nearest'});
+}
+
+function calSelectStar(s){
+  cal.picks[cal.idx].star=s;
+  cal.idx++;
+  $('cal-panel').style.display='none';
+  calDrawMarkers();
+  if(cal.idx<3){
+    calUpdateBanner();
+  } else {
+    $('cal-banner').style.display='none';
+    calCv.style.display='none';
+    calCompute();
+  }
+}
+
+function calCompute(){
+  const result=solveCal(cal.picks);
+  $('cal-result-panel').style.display='block';
+  $('cal-result-panel').scrollIntoView({behavior:'smooth',block:'nearest'});
+  if(!result){
+    $('cal-result-body').innerHTML='<div style="color:var(--warn);font-size:12px">No valid solution found. The 3 stars may be nearly collinear or misidentified. Try again with stars spread further apart across the image.</div>';
+    return;
+  }
+  const refw=Math.max(1,+($('refw').value)||900);
+  const sc=refw/st.iw;
+  const ow=Math.round(2*result.r*sc);
+  const offL=Math.round((result.cx-result.r)*sc);
+  const offT=Math.round((result.cy-result.r)*sc);
+  const qual=result.rmse<3?'<span style="color:var(--ok)">Excellent</span>':
+             result.rmse<8?'<span style="color:var(--warn)">Good</span>':
+             '<span style="color:#e05050">Poor — verify visually</span>';
+  $('cal-result-body').innerHTML=`
+<div style="font-size:11.5px;color:var(--muted);margin-bottom:10px">
+  RMS fit error: <b>${result.rmse.toFixed(1)} px</b> &mdash; ${qual}
+</div>
+<div class="cal-res-row"><span class="cal-res-key">"az"</span><span class="cal-res-val">${result.az}</span></div>
+<div class="cal-res-row"><span class="cal-res-key">"overlayWidth"</span><span class="cal-res-val">${ow}</span></div>
+<div class="cal-res-row"><span class="cal-res-key">"overlayHeight"</span><span class="cal-res-val">${ow}</span></div>
+<div class="cal-res-row"><span class="cal-res-key">"overlayOffsetLeft"</span><span class="cal-res-val">${offL}</span></div>
+<div class="cal-res-row"><span class="cal-res-key">"overlayOffsetTop"</span><span class="cal-res-val">${offT}</span></div>
+<div style="font-size:11px;color:var(--faint);margin-top:8px">
+  Stars used: ${cal.picks.map(p=>p.star.name).join(', ')}
+</div>`;
+  cal._result={...result,ow,offL,offT};
+}
+
+$('cal-start').addEventListener('click', calStart);
+$('pred-stars').addEventListener('click', function() {
+  st.showPredicted = !st.showPredicted;
+  this.textContent = st.showPredicted
+    ? '✕ Hide predicted Big Dipper'
+    : '🔭 Show predicted Big Dipper on photo (diagnostic)';
+  this.style.background = st.showPredicted ? 'rgba(50,220,110,0.22)' : 'rgba(50,220,110,0.08)';
+  $('pred-guide').style.display = st.showPredicted ? '' : 'none';
+  draw();
+});
+$('cal-cancel').addEventListener('click', calClear);
+$('cal-undo').addEventListener('click',()=>{
+  if(cal.idx>0){cal.idx--;cal.picks.pop();}
+  $('cal-panel').style.display='none';
+  calUpdateBanner();
+  calDrawMarkers();
+});
+$('cal-apply').addEventListener('click',()=>{
+  const r=cal._result;if(!r)return;
+  st.az=r.az;st.cx=r.cx;st.cy=r.cy;st.r=r.r;
+  $('az').value=r.az.toFixed(1);$('azn').value=r.az.toFixed(1);
+  const pct=Math.min(160,Math.max(10,(r.r/(st.iw/2))*100));
+  $('rad').value=pct.toFixed(1);$('radv').textContent=pct.toFixed(0)+'%';
+  sky=null;calClear();draw();
+});
+$('cal-redo').addEventListener('click',()=>{$('cal-result-panel').style.display='none';calStart();});
+$('cal-search').addEventListener('input',e=>{
+  const q=e.target.value.toLowerCase();
+  $('cal-star-list').querySelectorAll('.cal-star-item').forEach(el=>{
+    el.style.display=el.querySelector('.cal-star-name').textContent.toLowerCase().includes(q)?'':'none';
+  });
+});
+
+// Calibration canvas: record click position → show star picker
+calCv.addEventListener('click',e=>{
+  if(!cal.active||cal.idx>=3) return;
+  computeFit();
+  const hr=$('host').getBoundingClientRect();
+  const mxH=e.clientX-hr.left, myH=e.clientY-hr.top;
+  const origX=(mxH-calTx)/calZoom, origY=(myH-calTy)/calZoom;
+  const imgX=(origX*dpr-fit.ox)/fit.s;
+  const imgY=(origY*dpr-fit.oy)/fit.s;
+  cal.picks[cal.idx]={px:imgX,py:imgY,star:null};
+  calDrawMarkers();
+  calShowPicker();
+});
+
+// In calibration mode, wheel zooms the photo view for precision clicking
+calCv.addEventListener('wheel',e=>{
+  if(!cal.active||!st.img) return;
+  e.preventDefault();
+  const hr=$('host').getBoundingClientRect();
+  const mxH=e.clientX-hr.left, myH=e.clientY-hr.top;
+  const origX=(mxH-calTx)/calZoom, origY=(myH-calTy)/calZoom;
+  const newZoom=Math.max(1,Math.min(8,calZoom*Math.exp(-e.deltaY*0.001)));
+  let newTx=mxH-origX*newZoom, newTy=myH-origY*newZoom;
+  newTx=Math.max(hr.width*(1-newZoom),Math.min(0,newTx));
+  newTy=Math.max(hr.height*(1-newZoom),Math.min(0,newTy));
+  if(newZoom<=1.001){calZoom=1;calTx=0;calTy=0;}
+  else{calZoom=newZoom;calTx=newTx;calTy=newTy;}
+  applyCalZoom();
+},{passive:false});
+
+// ═══════════════════════════════════════════════════════════════
+
 let dragging=false,lx=0,ly=0;
-cv.addEventListener('pointerdown',e=>{if(!st.img)return;dragging=true;cv.classList.add('drag');cv.setPointerCapture(e.pointerId);lx=e.clientX;ly=e.clientY;});
+cv.addEventListener('pointerdown',e=>{if(!st.img||st.locked)return;dragging=true;cv.classList.add('drag');cv.setPointerCapture(e.pointerId);lx=e.clientX;ly=e.clientY;});
 cv.addEventListener('pointermove',e=>{if(!dragging)return;const dx=(e.clientX-lx)*dpr,dy=(e.clientY-ly)*dpr;lx=e.clientX;ly=e.clientY;st.cx+=dx/fit.s;st.cy+=dy/fit.s;draw();});
 cv.addEventListener('pointerup',()=>{dragging=false;cv.classList.remove('drag');});
 cv.addEventListener('pointercancel',()=>{dragging=false;cv.classList.remove('drag');});
-cv.addEventListener('wheel',e=>{if(!st.img)return;e.preventDefault();const f=Math.exp(-e.deltaY*0.0012);st.r=Math.max(20,st.r*f);const pct=Math.min(160,Math.max(10,(st.r/(st.iw/2))*100));$('rad').value=pct.toFixed(1);$('radv').textContent=pct.toFixed(0)+'%';draw();},{passive:false});
+cv.addEventListener('wheel',e=>{if(!st.img)return;e.preventDefault();if(st.locked)return;const f=Math.exp(-e.deltaY*0.0012);st.r=Math.max(20,st.r*f);const pct=Math.min(160,Math.max(10,(st.r/(st.iw/2))*100));$('rad').value=pct.toFixed(1);$('radv').textContent=pct.toFixed(0)+'%';draw();},{passive:false});
 </script>
 </body>
 </html>
