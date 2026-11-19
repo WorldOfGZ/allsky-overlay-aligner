@@ -1,3 +1,6 @@
+> [!IMPORTANT]  
+> New version of AllSky include now a powerfull Constellation Overlay Aligner, this tool is not necessary anymore.
+
 # AllSky Constellation Overlay Aligner
 
 A standalone browser tool that helps [AllSky](https://github.com/AllskyTeam/allsky) all-sky camera owners align the VirtualSky constellation overlay — without the tedious trial-and-error cycle of editing a config, rebooting the Pi, recapturing, and comparing.
